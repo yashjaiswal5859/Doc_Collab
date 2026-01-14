@@ -2,22 +2,14 @@ const express = require('express');
 const { Document, DocumentVersion } = require('../models/Document');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
-const { Op } = require('sequelize');
 
 const router = express.Router();
 
-// Get all documents for the current user
+// Get all documents (public - everyone can see all documents)
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const documents = await Document.findAll({
-      where: {
-        [Op.or]: [
-          { ownerId: req.userId },
-          { '$collaborators.id$': req.userId }
-        ]
-      },
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'username', 'email'] },
         { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] }
       ],
       order: [['updatedAt', 'DESC']],
@@ -31,12 +23,11 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
-// Get a single document
+// Get a single document (public - everyone can view)
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
     const document = await Document.findByPk(req.params.id, {
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'username', 'email'] },
         { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] },
         {
           model: DocumentVersion,
@@ -49,15 +40,6 @@ router.get('/:id', authMiddleware, async (req, res) => {
 
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
-    }
-
-    // Check if user has access
-    const collaboratorIds = document.collaborators.map(c => c.id);
-    if (
-      document.ownerId !== parseInt(req.userId) &&
-      !collaboratorIds.includes(parseInt(req.userId))
-    ) {
-      return res.status(403).json({ message: 'Access denied' });
     }
 
     res.json(document);
@@ -79,7 +61,6 @@ router.post('/', authMiddleware, async (req, res) => {
     const document = await Document.create({
       title,
       content: content || '',
-      ownerId: req.userId,
       currentVersion: 0
     });
 
@@ -93,7 +74,7 @@ router.post('/', authMiddleware, async (req, res) => {
     // Fetch document with associations
     const createdDocument = await Document.findByPk(document.id, {
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'username', 'email'] }
+        { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] }
       ]
     });
 
@@ -104,7 +85,7 @@ router.post('/', authMiddleware, async (req, res) => {
   }
 });
 
-// Update a document
+// Update a document (public - everyone can edit)
 router.put('/:id', authMiddleware, async (req, res) => {
   const sequelize = require('../config/database');
   const transaction = await sequelize.transaction();
@@ -121,23 +102,12 @@ router.put('/:id', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Document not found' });
     }
 
-    // Check if user has access
-    const collaboratorIds = document.collaborators.map(c => c.id);
-    if (
-      document.ownerId !== parseInt(req.userId) &&
-      !collaboratorIds.includes(parseInt(req.userId))
-    ) {
-      await transaction.rollback();
-      return res.status(403).json({ message: 'Access denied' });
-    }
-
     // Check if content actually changed
     if (document.content === content) {
       await transaction.rollback();
       // Fetch and return document without creating new version
       const unchangedDocument = await Document.findByPk(document.id, {
         include: [
-          { model: User, as: 'owner', attributes: ['id', 'username', 'email'] },
           { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] }
         ]
       });
@@ -175,7 +145,6 @@ router.put('/:id', authMiddleware, async (req, res) => {
     // Fetch updated document with associations
     const updatedDocument = await Document.findByPk(document.id, {
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'username', 'email'] },
         { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] }
       ]
     });
@@ -189,18 +158,13 @@ router.put('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Delete a document
+// Delete a document (public - everyone can delete)
 router.delete('/:id', authMiddleware, async (req, res) => {
   try {
     const document = await Document.findByPk(req.params.id);
 
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
-    }
-
-    // Only owner can delete
-    if (document.ownerId !== parseInt(req.userId)) {
-      return res.status(403).json({ message: 'Only the owner can delete this document' });
     }
 
     await document.destroy();
@@ -211,24 +175,13 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
-// Get document versions
+// Get document versions (public - everyone can view)
 router.get('/:id/versions', authMiddleware, async (req, res) => {
   try {
-    const document = await Document.findByPk(req.params.id, {
-      include: [{ model: User, as: 'collaborators' }]
-    });
+    const document = await Document.findByPk(req.params.id);
 
     if (!document) {
       return res.status(404).json({ message: 'Document not found' });
-    }
-
-    // Check if user has access
-    const collaboratorIds = document.collaborators.map(c => c.id);
-    if (
-      document.ownerId !== parseInt(req.userId) &&
-      !collaboratorIds.includes(parseInt(req.userId))
-    ) {
-      return res.status(403).json({ message: 'Access denied' });
     }
 
     const versions = await DocumentVersion.findAll({
@@ -244,7 +197,7 @@ router.get('/:id/versions', authMiddleware, async (req, res) => {
   }
 });
 
-// Revert to a specific version
+// Revert to a specific version (public - everyone can revert)
 router.post('/:id/revert/:versionIndex', authMiddleware, async (req, res) => {
   const sequelize = require('../config/database');
   const transaction = await sequelize.transaction();
@@ -259,16 +212,6 @@ router.post('/:id/revert/:versionIndex', authMiddleware, async (req, res) => {
     if (!document) {
       await transaction.rollback();
       return res.status(404).json({ message: 'Document not found' });
-    }
-
-    // Check if user has access
-    const collaboratorIds = document.collaborators.map(c => c.id);
-    if (
-      document.ownerId !== parseInt(req.userId) &&
-      !collaboratorIds.includes(parseInt(req.userId))
-    ) {
-      await transaction.rollback();
-      return res.status(403).json({ message: 'Access denied' });
     }
 
     const versions = await DocumentVersion.findAll({
@@ -313,7 +256,6 @@ router.post('/:id/revert/:versionIndex', authMiddleware, async (req, res) => {
     // Fetch updated document with associations
     const updatedDocument = await Document.findByPk(document.id, {
       include: [
-        { model: User, as: 'owner', attributes: ['id', 'username', 'email'] },
         { model: User, as: 'collaborators', attributes: ['id', 'username', 'email'] }
       ]
     });

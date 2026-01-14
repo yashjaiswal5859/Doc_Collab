@@ -17,16 +17,6 @@ module.exports = {
         type: Sequelize.TEXT,
         allowNull: true
       },
-      ownerId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'users',
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE'
-      },
       currentVersion: {
         type: Sequelize.INTEGER,
         defaultValue: 0
@@ -42,9 +32,6 @@ module.exports = {
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       }
     });
-
-    // Add indexes
-    await queryInterface.addIndex('documents', ['ownerId']);
   },
 
   async down(queryInterface, Sequelize) {

@@ -16,14 +16,6 @@ const Document = sequelize.define('Document', {
     type: DataTypes.TEXT,
     allowNull: true
   },
-  ownerId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'users',
-      key: 'id'
-    }
-  },
   currentVersion: {
     type: DataTypes.INTEGER,
     defaultValue: 0
@@ -88,7 +80,6 @@ const DocumentCollaborator = sequelize.define('DocumentCollaborator', {
 });
 
 // Define associations
-Document.belongsTo(User, { as: 'owner', foreignKey: 'ownerId' });
 Document.hasMany(DocumentVersion, { as: 'versions', foreignKey: 'documentId', onDelete: 'CASCADE' });
 Document.belongsToMany(User, { as: 'collaborators', through: DocumentCollaborator, foreignKey: 'documentId', otherKey: 'userId' });
 

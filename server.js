@@ -72,7 +72,7 @@ const documentRooms = new Map();
 // Auto-save timers for debounced saving
 const autoSaveTimers = new Map();
 
-// Helper function to save document to database with versioning
+// Helper function to save document to database with versioning (public - everyone can save)
 async function saveDocumentToDB(documentId, content, userId, isExplicitSave = false) {
   const { DocumentVersion } = require('./models/Document');
   
@@ -80,7 +80,7 @@ async function saveDocumentToDB(documentId, content, userId, isExplicitSave = fa
   const transaction = await sequelize.transaction();
   
   try {
-    // Fetch document with collaborators for access check
+    // Fetch document
     const document = await Document.findByPk(documentId, {
       include: [{ model: User, as: 'collaborators' }],
       transaction
@@ -89,17 +89,6 @@ async function saveDocumentToDB(documentId, content, userId, isExplicitSave = fa
     if (!document) {
       await transaction.rollback();
       throw new Error('Document not found');
-    }
-
-    // Check if user has access
-    const collaboratorIds = document.collaborators.map(c => c.id);
-    const hasAccess =
-      document.ownerId === parseInt(userId) ||
-      collaboratorIds.includes(parseInt(userId));
-
-    if (!hasAccess) {
-      await transaction.rollback();
-      throw new Error('Access denied');
     }
 
     // Check if content actually changed
@@ -170,29 +159,17 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('User connected:', socket.userId);
 
-  // Join document room
+  // Join document room (public - everyone can join)
   socket.on('join-document', async (documentId) => {
     try {
       const document = await Document.findByPk(documentId, {
         include: [
-          { model: User, as: 'owner' },
           { model: User, as: 'collaborators' }
         ]
       });
 
       if (!document) {
         socket.emit('error', { message: 'Document not found' });
-        return;
-      }
-
-      // Check if user has access
-      const collaboratorIds = document.collaborators.map(c => c.id);
-      const hasAccess =
-        document.ownerId === parseInt(socket.userId) ||
-        collaboratorIds.includes(parseInt(socket.userId));
-
-      if (!hasAccess) {
-        socket.emit('error', { message: 'Access denied' });
         return;
       }
 
